@@ -60,13 +60,15 @@ Cerro Torre offers a third path:
 * *OCI Exporter*: Tarball export and registry push work. `Attach_Provenance` and `Attach_SBOM` are *stubs*.
 * *SELinux Policy*: Generation structures present but not fully connected.
 * *CLI Signing*: Ed25519 OpenSSL module exists. `ct sign` and `ct keygen` *not yet wired to CLI*.
+* *CT-SIG-02 Hybrid Signing*: ML-DSA-87 half is real (see below); Ed25519 keygen/signing for the hybrid combination is still TODO, so `Sign_Hybrid`/`Generate_Hybrid_Keypair` return `Not_Implemented` even though `Verify_Hybrid`'s Ed25519 check already works.
 
 **What is stubbed (not yet implemented):**
 
 * Alpine importer, Fedora importer, OSTree exporter (pure stubs, <5% each)
-* Post-quantum cryptography (liboqs bindings scaffolded, operations not implemented)
 * Builder orchestration (Build_From_Manifest not implemented)
 * SPARK proof discharge via GNATprove (annotations present, proofs not run)
+
+**Post-quantum cryptography (ML-DSA-87, FIPS 204)**: real, not a stub. `CT_PQCrypto.Generate_ML_DSA_87_Keypair` / `Sign_ML_DSA_87` / `Verify_ML_DSA_87` call genuine liboqs C functions (`src/bindings/liboqs.ads`) and are exercised by a keygen→sign→verify round-trip test with negative controls (tampered message, corrupted signature) in `src/cli/ct_test_crypto.adb` — verified locally against liboqs 0.15.0 and wired into CI (`.github/workflows/pqcrypto-build-test.yml`). Requires liboqs linked at build time (`-loqs` in `cerro_torre.gpr`); there is no build without it installed.
 
 **Try It Now:**
 

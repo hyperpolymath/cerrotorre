@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+#
+# pqcrypto-build-test.yml — proves CT_PQCrypto's ML-DSA-87 (liboqs) wiring
+# actually links and works, not just that the source compiles in isolation.
+#
+# liboqs is a hard build dependency once -loqs is enabled in
+# cerro_torre.gpr (CT_PQCrypto/LibOQS use `pragma Import (C, ...)`, so the
+# symbols must resolve at link time). This workflow builds liboqs from
+# source pinned to the 0.15.0 release tag (resolved commit SHA, not a
+# floating tag or branch), configured for a minimal ML-DSA-87-only build,
+# then builds cerro_torre against it and runs the real test suite
+# (src/cli/ct_test_crypto.adb), which exercises a genuine
+# keygen -> sign -> verify round trip plus two negative controls
+# (tampered message, corrupted signature).
+
+name: PQCrypto Build & Test (liboqs)
+
+on:
+  pull_request:
+    paths:
+      - 'src/core/ct_pqcrypto.*'
+      - 'src/bindings/liboqs.*'
+      - 'src/cli/ct_test_crypto.adb'
+      - 'cerro_torre.gpr'
+      - '.github/workflows/pqcrypto-build-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/core/ct_pqcrypto.*'
+      - 'src/bindings/liboqs.*'
+      - 'src/cli/ct_test_crypto.adb'
+      - 'cerro_torre.gpr'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # open-quantum-safe/liboqs, tag 0.15.0 (published 2025-11-14), resolved
+  # to a commit SHA for supply-chain pinning.
+  LIBOQS_REF: 97f6b86b1b6d109cfd43cf276ae39c2e776aed80
+
+jobs:
+  pqcrypto-round-trip:
+    name: Build liboqs + run ML-DSA-87 round-trip test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v4
+
+      - name: Install build tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libssl-dev
+
+      - name: Build liboqs (minimal, ML-DSA-87 only)
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
+          cd /tmp/liboqs
+          git checkout --quiet "$LIBOQS_REF"
+          cmake -GNinja -B build \
+            -DCMAKE_INSTALL_PREFIX=/tmp/liboqs-install \
+            -DOQS_BUILD_ONLY_LIB=ON \
+            -DOQS_MINIMAL_BUILD="SIG_ml_dsa_87" \
+            .
+          ninja -C build -j"$(nproc)"
+          ninja -C build install
+
+      - name: Install Alire toolchain (FSF GNAT)
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl -fsSL -o alr.zip \
+            https://github.com/alire-project/alire/releases/download/v2.0.2/alr-2.0.2-bin-x86_64-linux.zip
+          unzip -q alr.zip
+          sudo install -m0755 bin/alr /usr/local/bin/alr
+          alr --version
+          alr -n index --update-all || true
+
+      - name: Build cerro_torre against liboqs
+        env:
+          LIBRARY_PATH: /tmp/liboqs-install/lib
+          C_INCLUDE_PATH: /tmp/liboqs-install/include
+          LD_LIBRARY_PATH: /tmp/liboqs-install/lib
+        run: |
+          set -euo pipefail
+          alr -n build
+
+      - name: Run ML-DSA-87 round-trip test (ct-test-crypto)
+        env:
+          LD_LIBRARY_PATH: /tmp/liboqs-install/lib
+        run: |
+          set -euo pipefail
+          ./bin/ct-test-crypto

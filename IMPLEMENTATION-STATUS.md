@@ -154,7 +154,8 @@
 - ⏳ Ed25519 signing (stub exists, needs implementation)
 - ⏳ Ed25519 verification (stub exists, needs implementation)
 - ⏳ Ed25519 key generation (stub exists, needs implementation)
-- ⏳ ML-DSA-87 post-quantum signatures (requires liboqs)
+- ✅ ML-DSA-87 post-quantum keygen/sign/verify (real, via liboqs; round-trip tested in `ct_test_crypto.adb`, requires `-loqs` linked)
+- ⏳ CT-SIG-02 hybrid mode (blocked on Ed25519 keygen/signing above — ML-DSA-87 half alone works)
 - ⏳ Constant-time comparison (timing-safe equality)
 
 **Files**: `src/core/cerro_crypto.{ads,adb}`, `src/core/ct_pqcrypto.{ads,adb}`

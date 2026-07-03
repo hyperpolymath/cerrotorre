@@ -3,8 +3,13 @@
 --
 --  Verifies SHA-256 and SHA-512 implementations against known test vectors
 
+with Ada.Command_Line;
 with Ada.Text_IO;
 with Cerro_Crypto;
+with CT_PQCrypto;
+use type CT_PQCrypto.Operation_Result;
+use type CT_PQCrypto.ML_DSA_87_Public_Key;
+with Interfaces; use Interfaces;
 
 procedure CT_Test_Crypto is
    use Ada.Text_IO;
@@ -45,6 +50,84 @@ procedure CT_Test_Crypto is
          return False;
       end if;
    end Test_SHA512;
+
+   function Test_ML_DSA_87_Round_Trip return Boolean is
+      Pub, Pub2      : CT_PQCrypto.ML_DSA_87_Public_Key;
+      Sec            : CT_PQCrypto.ML_DSA_87_Secret_Key;
+      Sig            : CT_PQCrypto.ML_DSA_87_Signature;
+      Keygen_Result  : CT_PQCrypto.Operation_Result;
+      Sign_Result_R  : CT_PQCrypto.Operation_Result;
+      Verify_Res     : CT_PQCrypto.Verification_Result;
+      Bad_Sig        : CT_PQCrypto.ML_DSA_87_Signature;
+      Bad_Verify_Res : CT_PQCrypto.Verification_Result;
+      Message        : constant String := "cerro-torre plugin manifest v1";
+      Tampered       : constant String := "cerro-torre plugin manifest v2";
+      All_Ok         : Boolean := True;
+   begin
+      Put_Line ("  liboqs available: " & Boolean'Image (CT_PQCrypto.Is_Algorithm_Available (CT_PQCrypto.ML_DSA_87)));
+      if not CT_PQCrypto.Is_Algorithm_Available (CT_PQCrypto.ML_DSA_87) then
+         Put_Line ("  ✗ FAIL - liboqs not linked, ML-DSA-87 unavailable");
+         return False;
+      end if;
+
+      CT_PQCrypto.Generate_ML_DSA_87_Keypair (Pub, Sec, Keygen_Result);
+      if Keygen_Result /= CT_PQCrypto.Success then
+         Put_Line ("  ✗ FAIL - keygen returned " & Keygen_Result'Image);
+         return False;
+      end if;
+      Put_Line ("  ✓ keygen ok (pub[1..4]: " &
+                 CT_PQCrypto.ML_DSA_Public_Key_To_Hex (Pub) (1 .. 8) & "...)");
+
+      --  A second keypair must not equal the first (sanity: not returning zeros/fixed data)
+      declare
+         Sec2 : CT_PQCrypto.ML_DSA_87_Secret_Key;
+         K2   : CT_PQCrypto.Operation_Result;
+      begin
+         CT_PQCrypto.Generate_ML_DSA_87_Keypair (Pub2, Sec2, K2);
+         if K2 = CT_PQCrypto.Success and then Pub2 = Pub then
+            Put_Line ("  ✗ FAIL - two keygens produced identical public keys");
+            All_Ok := False;
+         end if;
+      end;
+
+      CT_PQCrypto.Sign_ML_DSA_87 (Message, Sec, Sig, Sign_Result_R);
+      if Sign_Result_R /= CT_PQCrypto.Success then
+         Put_Line ("  ✗ FAIL - sign returned " & Sign_Result_R'Image);
+         return False;
+      end if;
+      Put_Line ("  ✓ sign ok");
+
+      Verify_Res := CT_PQCrypto.Verify_ML_DSA_87 (Message, Sig, Pub);
+      if not Verify_Res.Valid then
+         Put_Line ("  ✗ FAIL - genuine signature failed to verify (status: " &
+                    Verify_Res.Status'Image & ")");
+         All_Ok := False;
+      else
+         Put_Line ("  ✓ verify(genuine) = valid");
+      end if;
+
+      --  Negative control 1: tampered message must fail verification
+      Bad_Verify_Res := CT_PQCrypto.Verify_ML_DSA_87 (Tampered, Sig, Pub);
+      if Bad_Verify_Res.Valid then
+         Put_Line ("  ✗ FAIL - tampered-message signature verified as valid");
+         All_Ok := False;
+      else
+         Put_Line ("  ✓ verify(tampered message) = invalid (correctly rejected)");
+      end if;
+
+      --  Negative control 2: corrupted signature bytes must fail verification
+      Bad_Sig := Sig;
+      Bad_Sig (Bad_Sig'First) := Bad_Sig (Bad_Sig'First) xor 16#FF#;
+      Bad_Verify_Res := CT_PQCrypto.Verify_ML_DSA_87 (Message, Bad_Sig, Pub);
+      if Bad_Verify_Res.Valid then
+         Put_Line ("  ✗ FAIL - corrupted signature verified as valid");
+         All_Ok := False;
+      else
+         Put_Line ("  ✓ verify(corrupted signature) = invalid (correctly rejected)");
+      end if;
+
+      return All_Ok;
+   end Test_ML_DSA_87_Round_Trip;
 
    Pass_Count : Natural := 0;
    Fail_Count : Natural := 0;
@@ -117,6 +200,16 @@ begin
    end if;
    Put_Line ("");
 
+   --  ML-DSA-87 (FIPS 204, post-quantum) round trip
+   Put_Line ("=== ML-DSA-87 Round Trip (liboqs) ===");
+   Put_Line ("");
+   if Test_ML_DSA_87_Round_Trip then
+      Pass_Count := Pass_Count + 1;
+   else
+      Fail_Count := Fail_Count + 1;
+   end if;
+   Put_Line ("");
+
    --  Summary
    Put_Line ("=== Results ===");
    Put_Line ("Passed:" & Natural'Image (Pass_Count));
@@ -126,5 +219,6 @@ begin
       Put_Line ("✓ All tests passed!");
    else
       Put_Line ("✗ Some tests failed");
+      Ada.Command_Line.Set_Exit_Status (Ada.Command_Line.Failure);
    end if;
 end CT_Test_Crypto;

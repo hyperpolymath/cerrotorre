@@ -138,12 +138,18 @@ project Cerro_Torre is
    end Binder;
 
    --  Linker settings
-   --  Note: When liboqs is installed, link with -loqs for ML-DSA-87 support
-   --  Without liboqs, the library falls back to stub implementations
+   --  liboqs is now a hard build dependency: CT_PQCrypto/LibOQS use
+   --  `pragma Import (C, ...)` (static symbol resolution), so -loqs must
+   --  resolve at LINK time — there is no build without liboqs installed
+   --  and discoverable (system package, or -L/-I via LIBRARY_PATH /
+   --  C_INCLUDE_PATH for a from-source install). CT_PQCrypto's runtime
+   --  Is_LibOQS_Available check is defense-in-depth against a *minimal*
+   --  liboqs build that omits ML-DSA-87 specifically, not a way to make
+   --  liboqs itself optional.
    package Linker is
-      --  Optional: Add "-loqs" when liboqs is installed
-      --  for Default_Switches ("Ada") use ("-loqs");
-      for Default_Switches ("Ada") use ();
+      --  liboqs links against OpenSSL's libcrypto internally (EVP_* fetch
+      --  API); -lcrypto must come after -loqs in link order.
+      for Default_Switches ("Ada") use ("-loqs", "-lcrypto");
    end Linker;
 
    --  SPARK Proof settings
