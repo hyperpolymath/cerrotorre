@@ -15,7 +15,9 @@ FROM ubuntu:24.04 AS ada-builder
 # Avoid interactive prompts during package install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Ada/SPARK toolchain, Alire prerequisites, Rust, and libcurl dev
+# Install Ada/SPARK toolchain, Alire prerequisites, Rust, libcurl dev, and
+# liboqs build tooling (cmake/ninja/libssl-dev — liboqs has no Debian/Ubuntu
+# package, so it's built from source below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gnat-14 \
         gprbuild \
@@ -25,7 +27,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         unzip \
         make \
+        cmake \
+        ninja-build \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Build liboqs from source, pinned to the 0.15.0 release tag (resolved
+# commit SHA, not a floating tag/branch — same pin as
+# .github/workflows/pqcrypto-build-test.yml). CT_PQCrypto's ML-DSA-87
+# bindings (src/bindings/liboqs.ads) use `pragma Import (C, ...)`, so -loqs
+# must resolve at `alr build` link time below — this is a hard build
+# dependency, not optional. Installed to /usr/local so gcc/ld find it via
+# their default search paths (no extra -L/-I plumbing needed for alr build).
+ARG LIBOQS_REF=97f6b86b1b6d109cfd43cf276ae39c2e776aed80
+RUN git clone --quiet https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs \
+    && cd /tmp/liboqs \
+    && git checkout --quiet "${LIBOQS_REF}" \
+    && cmake -GNinja -B build \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DOQS_MINIMAL_BUILD="SIG_ml_dsa_87" \
+        . \
+    && ninja -C build -j"$(nproc)" \
+    && ninja -C build install \
+    && ldconfig \
+    && rm -rf /tmp/liboqs
 
 # Install Alire — use the explicit-version download URL (not /latest/download/),
 # because GitHub's /latest/download/<filename> redirect requires <filename>
@@ -92,9 +118,13 @@ FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install the libcurl runtime (OpenSSL flavour) for HTTP/TLS operations,
-# plus CA roots for TLS verification.
+# CA roots for TLS verification, and libssl3 — liboqs.a is statically
+# linked into `ct` at build time, but it calls OpenSSL's EVP_* API
+# dynamically (libcrypto.so.3), so the runtime image needs libssl3 even
+# though liboqs itself never ships here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4 \
+        libssl3 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

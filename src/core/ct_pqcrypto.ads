@@ -10,7 +10,16 @@
 --
 --  Implementation Status:
 --    - API defined and stable
---    - Stub implementations pending liboqs bindings
+--    - Pure ML-DSA-87 (keygen/sign/verify) is implemented via liboqs
+--      (src/bindings/liboqs.ads) and covered by a real round-trip test
+--      (src/cli/ct_test_crypto.adb) — this requires liboqs to be linked
+--      at build time (-loqs, see cerro_torre.gpr); Not_Implemented is
+--      returned at runtime only if a *minimal* liboqs build omits
+--      ML-DSA-87 specifically, not as a general "liboqs missing" fallback
+--    - CT-SIG-02 hybrid mode's Ed25519 half (keygen + signing) is still
+--      a TODO — Generate_Hybrid_Keypair and Sign_Hybrid return
+--      Not_Implemented; Verify_Hybrid's Ed25519 half already works
+--      (delegates to Cerro_Crypto.Verify_Ed25519)
 --    - Hybrid mode combines Ed25519 + ML-DSA-87 for defense-in-depth
 --
 --  Key Sizes (ML-DSA-87):
@@ -86,7 +95,10 @@ is
 
    type Operation_Result is
      (Success,
-      Not_Implemented,     --  Stub: liboqs not yet linked
+      Not_Implemented,     --  Algorithm unavailable at runtime (e.g. a
+                           --  minimal liboqs build omitting ML-DSA-87),
+                           --  or a still-TODO code path (hybrid Ed25519
+                           --  keygen/signing)
       Invalid_Key,         --  Malformed or corrupted key
       Invalid_Signature,   --  Signature verification failed
       Key_Size_Mismatch,   --  Wrong key size for algorithm
@@ -98,12 +110,11 @@ is
       Algorithm_Used : Signature_Algorithm;
    end record;
 
-   --------------------------
-   -- Key Generation (Stub) --
-   --------------------------
+   -----------------
+   -- Key Generation --
+   -----------------
 
-   --  Generate ML-DSA-87 keypair
-   --  NOTE: Returns Not_Implemented until liboqs bindings are complete
+   --  Generate ML-DSA-87 keypair (real, via liboqs)
    procedure Generate_ML_DSA_87_Keypair
      (Public_Key  : out ML_DSA_87_Public_Key;
       Secret_Key  : out ML_DSA_87_Secret_Key;
@@ -111,19 +122,19 @@ is
    with Global => null;
 
    --  Generate CT-SIG-02 hybrid keypair (Ed25519 + ML-DSA-87)
-   --  NOTE: Returns Not_Implemented until liboqs bindings are complete
+   --  NOTE: Returns Not_Implemented — Ed25519 keygen side is still TODO;
+   --  ML-DSA-87 side alone is real (see Generate_ML_DSA_87_Keypair)
    procedure Generate_Hybrid_Keypair
      (Public_Key  : out Hybrid_Public_Key;
       Secret_Key  : out Hybrid_Secret_Key;
       Result      : out Operation_Result)
    with Global => null;
 
-   ---------------------------
-   -- ML-DSA-87 Signing (Stub) --
-   ---------------------------
+   ------------------------
+   -- ML-DSA-87 Signing --
+   ------------------------
 
-   --  Sign a message with ML-DSA-87
-   --  NOTE: Returns Not_Implemented until liboqs bindings are complete
+   --  Sign a message with ML-DSA-87 (real, via liboqs)
    procedure Sign_ML_DSA_87
      (Message    : String;
       Secret_Key : ML_DSA_87_Secret_Key;
@@ -132,8 +143,7 @@ is
    with Global => null,
         Pre    => Message'Length <= Max_Sign_Input_Length;
 
-   --  Verify an ML-DSA-87 signature
-   --  NOTE: Returns Not_Implemented until liboqs bindings are complete
+   --  Verify an ML-DSA-87 signature (real, via liboqs)
    function Verify_ML_DSA_87
      (Message    : String;
       Signature  : ML_DSA_87_Signature;
@@ -147,7 +157,10 @@ is
 
    --  Sign a message with CT-SIG-02 (Ed25519 + ML-DSA-87)
    --  Creates both signatures, concatenates them in canonical format
-   --  NOTE: ML-DSA-87 portion returns Not_Implemented until liboqs ready
+   --  NOTE: overall Result is Not_Implemented — the ML-DSA-87 portion is
+   --  real (via liboqs), but the Ed25519 keygen/sign side is still TODO
+   --  (see Generate_Hybrid_Keypair), so the hybrid combination can't be
+   --  produced correctly yet even though half of it already works
    procedure Sign_Hybrid
      (Message    : String;
       Secret_Key : Hybrid_Secret_Key;
